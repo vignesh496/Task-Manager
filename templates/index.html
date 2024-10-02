@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Task Manager</title>
+    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@latest/dist/tailwind.min.css" rel="stylesheet">
+    <style>
+        /* Background image */
+        body {
+            background: url('/static/images/bg.png') no-repeat center center fixed;
+            background-size: cover;
+        }
+
+        /* Task card styles */
+        .overdue {
+            background-color: rgba(239, 68, 68, 0.2); /* Light red */
+            border-left: 4px solid rgba(239, 68, 68, 0.8); /* Strong red border */
+        }
+
+        .ongoing {
+            background-color: rgba(16, 185, 129, 0.2); /* Light green */
+            border-left: 4px solid rgba(16, 185, 129, 0.8); /* Strong green border */
+        }
+    </style>
+</head>
+<body>
+    <div class="container mx-auto p-5 bg-white bg-opacity-0 rounded-lg">
+        <h1 class="text-4xl font-bold text-center text-gray-800 mb-6">Task Manager</h1>
+
+        <div class="bg-white shadow-md bg-opacity-70 rounded-lg p-5 mb-6">
+            <h2 class="text-xl text-gray-800 font-semibold mb-4">Add a New Task</h2>
+            <div class="flex mb-4">
+                <input type="text" id="taskInput" placeholder="Task" class="border border-gray-300 p-3 rounded-l-lg w-full focus:outline-none focus:ring focus:ring-blue-300" />
+                <input type="datetime-local" id="dueDateInput" class="border border-gray-300 p-3 rounded-r-lg focus:outline-none focus:ring focus:ring-blue-300" />
+                <button id="addTaskButton" class="bg-blue-500 text-white p-3 rounded-lg ml-2 hover:bg-blue-600 transition duration-200">Add Task</button>
+            </div>
+        </div>
+
+        <div class="bg-white text-gray-800 shadow-md bg-opacity-70 rounded-lg p-5">
+            <h2 class="text-xl font-semibold mb-4">Your Tasks</h2>
+            <ul id="taskList" class="space-y-4 ">
+                {% for task in tasks %}
+                    <li id="task-{{ task.id }}" class="flex justify-between  items-center p-4 rounded-lg shadow hover:bg-gray-100 transition duration-200 {{ 'overdue' if task.is_overdue else 'ongoing' }}">
+                        <span id="task-text-{{ task.id }}" class="text-gray-800">{{ task.task }} - <span class="text-gray-600">{{ task.due_date }}</span></span>
+                        
+                        <div>
+                            <button id="edit-{{ task.id }}" class="bg-green-500 text-white p-2 rounded-lg hover:bg-green-600 transition duration-200 ml-2 {{ 'opacity-50 cursor-not-allowed' if task.is_overdue else '' }}" onclick="editTask({{ task.id }})" {% if task.is_overdue %} disabled {% endif %}>Edit</button>
+                            <button class="bg-red-500 text-white p-2 rounded-lg hover:bg-red-600 transition duration-200 ml-2" onclick="deleteTask({{ task.id }})">Delete</button>
+                        </div>
+                    </li>
+                {% endfor %}
+            </ul>
+            
+            {% if tasks|length == 0 %}
+                <p class="text-center text-gray-500 mt-4">No tasks available. Add your first task!</p>
+            {% endif %}
+        </div>
+    </div>
+
+    <script>
+        // Function to calculate the remaining time until a task is overdue
+        function calculateTimeUntilOverdue(dueDate) {
+            const now = new Date();
+            const due = new Date(dueDate);
+            return due - now; // Time in milliseconds
+        }
+
+        // Function to reload the page exactly when a task becomes overdue
+        function setTaskTimeouts() {
+            const tasks = JSON.parse('{{ tasks | tojson }}');  // Get tasks from the backend
+            
+            tasks.forEach(task => {
+                if (!task.is_overdue) {
+                    const timeUntilOverdue = calculateTimeUntilOverdue(task.due_date);
+
+                    // If timeUntilOverdue is positive, the task is not yet overdue
+                    if (timeUntilOverdue > 0) {
+                        setTimeout(() => {
+                            location.reload();  // Reload the page when the task becomes overdue
+                        }, timeUntilOverdue);
+                    }
+                }
+            });
+        }
+
+        // Set timeouts for all tasks when the page loads
+        setTaskTimeouts();
+
+        // Function to add a new task
+        document.getElementById('addTaskButton').addEventListener('click', async () => {
+            const taskInput = document.getElementById('taskInput');
+            const dueDateInput = document.getElementById('dueDateInput');
+
+            const task = taskInput.value;
+            const due_date = dueDateInput.value;
+
+            if (task && due_date) {
+                const response = await fetch('/tasks', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ task, due_date }),
+                });
+
+                if (response.ok) {
+                    location.reload(); // Reload the page after adding a task
+                } else {
+                    console.error('Failed to add task');
+                }
+            }
+        });
+
+        // Function to delete a task
+        async function deleteTask(taskId) {
+            const response = await fetch(`/tasks/${taskId}`, {
+                method: 'DELETE',
+            });
+
+            if (response.ok) {
+                location.reload(); // Reload the page after deleting a task
+            } else {
+                console.error('Failed to delete task');
+            }
+        }
+
+        // Function to edit a task
+        async function editTask(taskId) {
+            const taskText = document.getElementById(`task-text-${taskId}`);
+            const originalText = taskText.textContent;
+            const taskDescription = originalText.split(' - ')[0];
+
+            // Remove the Edit button
+            const editButton = document.getElementById(`edit-${taskId}`);
+            if (editButton) {
+                editButton.remove();
+            }
+
+            // Create input field for editing
+            const taskInput = document.createElement('input');
+            taskInput.type = 'text';
+            taskInput.value = taskDescription;
+
+            // Create Save button
+            const saveButton = document.createElement('button');
+            saveButton.className = 'bg-green-500 text-white p-2 rounded-lg hover:bg-green-600 transition duration-200 ml-2';
+            saveButton.textContent = 'Save';
+
+            // Event listener for saving the updated task
+            saveButton.onclick = async () => {
+                const newTaskText = taskInput.value;
+                const response = await fetch(`/tasks/${taskId}`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ task: newTaskText })
+                });
+
+                if (response.ok) {
+                    location.reload(); // Reload the page after editing a task
+                } else {
+                    console.error('Failed to update task');
+                }
+            };
+
+            // Replace the original task text with the input and save button
+            taskText.innerHTML = '';
+            taskText.appendChild(taskInput);
+            taskText.appendChild(saveButton);
+        }
+    </script>
+</body>
+</html>
